@@ -1,0 +1,38 @@
+strict digraph {
+
+	bgcolor="lightgrey";
+
+	label="Add User";
+
+	labelloc="t";
+
+
+	"Save User" [ color="2", colorscheme="greens3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Save User" -> "Success Response" [  weight=0 ];
+
+	"Error Response" [ color="2", colorscheme="reds3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Error Response" -> "Send Response" [  weight=0 ];
+
+	"Success Response" [ color="2", colorscheme="blues3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Success Response" -> "Send Response" [  weight=0 ];
+
+	"Send Response" [ color="2", colorscheme="blues3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Get Input" [ color="2", colorscheme="blues3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Get Input" -> "Transform to User" [  weight=0 ];
+
+	"Transform to User" [ color="2", colorscheme="blues3", fillcolor="1", shape="rectangle", style="filled",  weight=0 ];
+
+	"Transform to User" -> "Validate User" [  weight=0 ];
+
+	"Validate User" [ color="2", colorscheme="ylorbr3", fillcolor="1", shape="diamond", style="filled",  weight=0 ];
+
+	"Validate User" -> "Save User" [ label="true",  weight=0 ];
+
+	"Validate User" -> "Error Response" [ label="false",  weight=0 ];
+
+}
