@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/dominikbraun/graph"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/labstack/echo/v4"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type (
@@ -35,8 +38,9 @@ type (
 		isTrueNode        bool
 		isFalseNode       bool
 		isConditionalNode bool
+		isParallelNode    bool
 		action            action
-		prev              []*node
+		aggregateNode     *node
 		next              []*node
 	}
 
@@ -156,30 +160,37 @@ func NewWorkflow(name string) *workflow {
 
 func (w *workflow) Export() ([]byte, error) {
 	g := graph.New(graph.StringHash, graph.Directed(), graph.Acyclic())
+
 	for _, n := range w.availableNodes {
+		key := strings.ReplaceAll(n.key, "-", " ")
+		key = cases.Title(language.English).String(key)
 		if n.isConditionalNode {
-			g.AddVertex(n.key, graph.VertexAttribute("shape", "diamond"), graph.VertexAttribute("colorscheme", "ylorbr3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
+			g.AddVertex(key, graph.VertexAttribute("shape", "diamond"), graph.VertexAttribute("colorscheme", "ylorbr3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
 
 			continue
 		}
 
 		if n.isTrueNode {
-			g.AddVertex(n.key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "greens3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
+			g.AddVertex(key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "greens3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
 
 			continue
 		}
 
 		if n.isFalseNode {
-			g.AddVertex(n.key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "reds3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
+			g.AddVertex(key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "reds3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
 
 			continue
 		}
 
-		g.AddVertex(n.key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "blues3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
+		g.AddVertex(key, graph.VertexAttribute("shape", "rectangle"), graph.VertexAttribute("colorscheme", "blues3"), graph.VertexAttribute("style", "filled"), graph.VertexAttribute("color", "2"), graph.VertexAttribute("fillcolor", "1"))
 	}
 
 	for from, to := range w.nodes {
+		from = strings.ReplaceAll(from, "-", " ")
+		from = cases.Title(language.English).String(from)
 		for k, v := range to {
+			k = strings.ReplaceAll(k, "-", " ")
+			k = cases.Title(language.English).String(k)
 			if v.label != "" {
 				g.AddEdge(from, k, graph.EdgeAttribute("label", v.label))
 
@@ -192,7 +203,10 @@ func (w *workflow) Export() ([]byte, error) {
 
 	buffer := bytes.Buffer{}
 
-	err := draw.DOT(g, &buffer, draw.GraphAttribute("label", w.key), draw.GraphAttribute("bgcolor", "lightgrey"), draw.GraphAttribute("labelloc", "t"))
+	k := strings.ReplaceAll(w.key, "-", " ")
+	k = cases.Title(language.English).String(k)
+
+	err := draw.DOT(g, &buffer, draw.GraphAttribute("label", k), draw.GraphAttribute("bgcolor", "lightgrey"), draw.GraphAttribute("labelloc", "t"))
 
 	return buffer.Bytes(), err
 }
@@ -231,14 +245,7 @@ func (w *workflow) AddEdge(from *node, to *node) error {
 	w.assignRoot(from)
 
 	w.cLock.Lock()
-	_, exists := w.nodes[from.key]
-	if exists {
-		return errors.New("parallel node is not supported yet")
-	}
-
 	from.next = append(from.next, to)
-	to.prev = append(to.prev, from)
-
 	w.nodes[from.key] = map[string]vertex{
 		to.key: {
 			from: from,
@@ -246,6 +253,58 @@ func (w *workflow) AddEdge(from *node, to *node) error {
 		},
 	}
 	w.destinations[to.key] = append(w.destinations[to.key], from)
+	w.cLock.Unlock()
+
+	return nil
+}
+
+func (w *workflow) AddParallelEdge(from *node, aggregate *node, parallels ...*node) error {
+	if !w.validateNode(from, aggregate) {
+		return errors.New("one or more nodes are not registered, use AddNode() to register the node")
+	}
+
+	if !w.validateNode(parallels...) {
+		return errors.New("one or more nodes are not registered, use AddNode() to register the node")
+	}
+
+	if err := w.isCircular(aggregate, from); err != nil {
+		return err
+	}
+
+	w.assignRoot(from)
+
+	w.cLock.Lock()
+	from.isParallelNode = true
+	for _, n := range parallels {
+		if err := w.isCircular(n, from); err != nil {
+			return err
+		}
+
+		if err := w.isCircular(aggregate, n); err != nil {
+			return err
+		}
+
+		if len(w.nodes[from.key]) == 0 {
+			w.nodes[from.key] = make(map[string]vertex)
+		}
+
+		w.nodes[from.key][n.key] = vertex{
+			from: from,
+			to:   n,
+		}
+
+		w.nodes[n.key] = map[string]vertex{
+			aggregate.key: {
+				from: n,
+				to:   aggregate,
+			},
+		}
+	}
+
+	from.next = parallels
+	from.aggregateNode = aggregate
+
+	w.destinations[aggregate.key] = append(w.destinations[aggregate.key], from)
 	w.cLock.Unlock()
 
 	return nil
@@ -264,23 +323,20 @@ func (w *workflow) AddConditionalEdge(from *node, condition *node, trueNode *nod
 		return err
 	}
 
+	if err := w.isCircular(condition, from); err != nil {
+		return err
+	}
+
 	w.assignRoot(from)
 
 	w.cLock.Lock()
-	if from.key == trueNode.key || from.key == falseNode.key {
-		return errors.New("circular reference detected")
-	}
 
 	condition.isConditionalNode = true
 
 	from.next = append(from.next, condition)
-	condition.prev = append(condition.prev, from)
 
 	trueNode.isTrueNode = true
 	falseNode.isFalseNode = true
-
-	trueNode.prev = append(trueNode.prev, condition)
-	falseNode.prev = append(falseNode.prev, condition)
 
 	condition.next = []*node{trueNode, falseNode}
 
@@ -363,6 +419,15 @@ func (w *workflow) execute(node *node, param []byte) ([]byte, error) {
 				continue
 			}
 
+			if node.next[k].isParallelNode {
+				result, err = w.executeParallel(node.next[k], result)
+				if err != nil {
+					return nil, err
+				}
+
+				continue
+			}
+
 			result, err = w.execute(node.next[k], result)
 			if err != nil {
 				return nil, err
@@ -373,6 +438,51 @@ func (w *workflow) execute(node *node, param []byte) ([]byte, error) {
 	return result, err
 }
 
+func (w *workflow) executeParallel(vertex *node, param []byte) ([]byte, error) {
+	result := make(chan []byte)
+	var err error
+
+	res, err := vertex.action(map[string][]byte{"data": param})
+	if err != nil {
+		return nil, err
+	}
+
+	wg := sync.WaitGroup{}
+	for _, n := range vertex.next {
+		wg.Add(1)
+		go func(n *node) {
+			r, _ := n.action(map[string][]byte{"data": res})
+
+			result <- r
+		}(n)
+	}
+
+	rAggregate := make(map[string][]byte)
+	for _, n := range vertex.next {
+		rAggregate[n.key] = <-result
+		wg.Done()
+	}
+	wg.Wait()
+	close(result)
+
+	rAggregate["data"] = res
+
+	res, err = vertex.aggregateNode.action(rAggregate)
+	if err != nil {
+		return nil, err
+	}
+
+	if vertex.aggregateNode.next[0].isConditionalNode {
+		return w.executeCondition(vertex.aggregateNode.next[0], res)
+	}
+
+	if vertex.aggregateNode.next[0].isParallelNode {
+		return w.executeParallel(vertex.aggregateNode.next[0], res)
+	}
+
+	return w.execute(vertex.aggregateNode.next[0], res)
+}
+
 func (w *workflow) executeCondition(node *node, param []byte) ([]byte, error) {
 	res, err := node.action(map[string][]byte{"data": param})
 	if err != nil {
@@ -381,7 +491,23 @@ func (w *workflow) executeCondition(node *node, param []byte) ([]byte, error) {
 
 	status, _ := strconv.ParseBool(string(res))
 	if status {
+		if node.next[0].isParallelNode {
+			return w.executeParallel(node.next[0], param)
+		}
+
+		if node.next[0].isConditionalNode {
+			return w.executeCondition(node.next[0], param)
+		}
+
 		return w.execute(node.next[0], param)
+	}
+
+	if node.next[1].isParallelNode {
+		return w.executeParallel(node.next[1], param)
+	}
+
+	if node.next[1].isConditionalNode {
+		return w.executeCondition(node.next[1], param)
 	}
 
 	return w.execute(node.next[1], param)
@@ -391,7 +517,6 @@ func NewNode(key string, param action) *node {
 	return &node{
 		key:    key,
 		action: param,
-		prev:   make([]*node, 0),
 		next:   make([]*node, 0),
 	}
 }

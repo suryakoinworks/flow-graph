@@ -5,6 +5,7 @@ go 1.21.1
 require (
 	github.com/dominikbraun/graph v0.23.0
 	github.com/labstack/echo/v4 v4.11.1
+	golang.org/x/text v0.11.0
 )
 
 require (
@@ -16,5 +17,4 @@ require (
 	golang.org/x/crypto v0.11.0 // indirect
 	golang.org/x/net v0.12.0 // indirect
 	golang.org/x/sys v0.10.0 // indirect
-	golang.org/x/text v0.11.0 // indirect
 )
