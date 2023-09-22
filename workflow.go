@@ -245,6 +245,11 @@ func (w *workflow) AddEdge(from *node, to *node) error {
 	w.assignRoot(from)
 
 	w.cLock.Lock()
+	_, exists := w.nodes[from.key]
+	if exists {
+		return errors.New("use AddParallelEdge() to use parallel node")
+	}
+
 	from.next = append(from.next, to)
 	w.nodes[from.key] = map[string]vertex{
 		to.key: {
@@ -299,6 +304,9 @@ func (w *workflow) AddParallelEdge(from *node, aggregate *node, parallels ...*no
 				to:   aggregate,
 			},
 		}
+
+		w.destinations[n.key] = append(w.destinations[n.key], from)
+		w.destinations[aggregate.key] = append(w.destinations[aggregate.key], n)
 	}
 
 	from.next = parallels
