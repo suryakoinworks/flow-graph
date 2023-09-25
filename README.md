@@ -11,7 +11,7 @@ Flow Graph is library to provide simple workflow and execute it as graph, send t
 - [X] Handle Parallel
 - [X] Export to Graph
 - [X] REST Api
-- [ ] Drag n Drop
+- [X] Logger
 
 ## Usage
 

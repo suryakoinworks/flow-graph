@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -416,6 +417,7 @@ func (w *workflow) execute(node *node, param []byte) ([]byte, error) {
 	var err error
 
 	result, err = node.action(map[string][]byte{"data": param})
+	log.Printf("execute %s with param %s", node.key, string(param))
 	if len(node.next) > 0 {
 		for k := 0; k < len(node.next); k++ {
 			if node.next[k].isConditionalNode {
@@ -451,6 +453,7 @@ func (w *workflow) executeParallel(vertex *node, param []byte) ([]byte, error) {
 	var err error
 
 	res, err := vertex.action(map[string][]byte{"data": param})
+	log.Printf("execute %s with param %s", vertex.key, string(param))
 	if err != nil {
 		return nil, err
 	}
@@ -460,6 +463,7 @@ func (w *workflow) executeParallel(vertex *node, param []byte) ([]byte, error) {
 		wg.Add(1)
 		go func(n *node) {
 			r, _ := n.action(map[string][]byte{"data": res})
+			log.Printf("execute %s with param %s", n.key, string(param))
 
 			result <- r
 		}(n)
@@ -476,6 +480,7 @@ func (w *workflow) executeParallel(vertex *node, param []byte) ([]byte, error) {
 	rAggregate["data"] = res
 
 	res, err = vertex.aggregateNode.action(rAggregate)
+	log.Printf("execute %s with param %s", vertex.aggregateNode.key, string(param))
 	if err != nil {
 		return nil, err
 	}
@@ -493,6 +498,7 @@ func (w *workflow) executeParallel(vertex *node, param []byte) ([]byte, error) {
 
 func (w *workflow) executeCondition(node *node, param []byte) ([]byte, error) {
 	res, err := node.action(map[string][]byte{"data": param})
+	log.Printf("execute %s with param %s", node.key, string(param))
 	if err != nil {
 		return nil, err
 	}
